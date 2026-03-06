@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from alchemy.config.settings import PipelineConfig
 from alchemy.models.base import GenerationConfig
@@ -40,6 +41,10 @@ def test_pipeline_engine_full_run(mock_provider, sample_plan, tmp_path):
     assert ctx.plan.dataset_name == "test_qa"
     assert len(ctx.validated_samples) == 2
     assert ctx.output_path is not None
+    assert ctx.artifact_paths["artifacts_dir"].endswith("test_output_artifacts")
+    assert Path(ctx.artifact_paths["accepted_jsonl"]).exists()
+    assert Path(ctx.artifact_paths["rejected_jsonl"]).exists()
+    assert Path(ctx.artifact_paths["metrics_json"]).exists()
 
 
 def test_pipeline_engine_passes_per_agent_generation_config(

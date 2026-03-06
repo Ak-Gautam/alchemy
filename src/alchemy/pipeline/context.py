@@ -19,3 +19,4 @@ class PipelineContext:
     rejected_samples: list[dict[str, Any]] = field(default_factory=list)
     output_path: str | None = None
     metrics: dict[str, Any] = field(default_factory=dict)
+    artifact_paths: dict[str, str] = field(default_factory=dict)

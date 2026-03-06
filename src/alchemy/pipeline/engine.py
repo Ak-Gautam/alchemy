@@ -18,6 +18,7 @@ from alchemy.models.registry import create_provider
 from alchemy.outputs.base import OutputAdapter
 from alchemy.schemas.dynamic import validate_sample_structure
 
+from .artifacts import write_run_artifacts
 from .context import PipelineContext
 from .plan import GenerationPlan
 
@@ -101,6 +102,9 @@ class PipelineEngine:
 
         # Phase 4: Output
         ctx.output_path = self._run_output(ctx)
+
+        # Phase 5: Run artifacts
+        ctx.artifact_paths = self._run_artifacts(ctx)
 
         self._print_summary(ctx)
         return ctx
@@ -231,3 +235,19 @@ class PipelineEngine:
             f"{m.get('raw_sample_count', 0)} generated"
         )
         console.print(f"  Output:      {ctx.output_path}")
+        artifacts_dir = ctx.artifact_paths.get("artifacts_dir")
+        if artifacts_dir:
+            console.print(f"  Artifacts:   {artifacts_dir}")
+
+    def _run_artifacts(self, ctx: PipelineContext) -> dict[str, str]:
+        output_path = ctx.output_path
+        assert output_path is not None
+        console.print("\n[bold cyan]Phase 5:[/] Writing run artifacts...")
+        artifact_paths = write_run_artifacts(
+            output_path=output_path,
+            accepted_samples=ctx.validated_samples,
+            rejected_samples=ctx.rejected_samples,
+            metrics=ctx.metrics,
+        )
+        console.print(f"  Saved run artifacts to: {artifact_paths['artifacts_dir']}")
+        return artifact_paths
