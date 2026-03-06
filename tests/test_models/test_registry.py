@@ -23,6 +23,16 @@ def test_create_provider_openai_returns_instance():
     assert provider.model_name() == "gpt-4o"
 
 
+def test_create_provider_llamacpp_alias_returns_instance():
+    provider = create_provider("llamacpp", model_id="Qwen3.5-9B-UD-Q4_K_XL.gguf")
+    assert provider.model_name() == "Qwen3.5-9B-UD-Q4_K_XL.gguf"
+
+
+def test_create_provider_llama_cpp_alias_returns_instance():
+    provider = create_provider("llama_cpp", model_id="Qwen3.5-9B-UD-Q4_K_XL.gguf")
+    assert provider.model_name() == "Qwen3.5-9B-UD-Q4_K_XL.gguf"
+
+
 def test_create_provider_google_returns_instance():
     provider = create_provider("google", model_id="gemini-pro")
     assert provider.model_name() == "gemini-pro"
