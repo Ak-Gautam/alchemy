@@ -19,6 +19,8 @@ class BaseAgent(abc.ABC):
     back to the model for self-correction.
     """
 
+    expects_json: bool = False
+
     def __init__(
         self,
         provider: ModelProvider,
@@ -37,6 +39,13 @@ class BaseAgent(abc.ABC):
     def parse_response(self, result: GenerationResult) -> Any:
         ...
 
+    def _effective_generation_config(self) -> GenerationConfig:
+        """Return the generation config to use for this invocation."""
+        cfg = self.generation_config
+        if self.expects_json and cfg.response_format == "text":
+            return cfg.model_copy(update={"response_format": "json_object"})
+        return cfg
+
     def invoke(self, user_message: str, **prompt_kwargs: Any) -> Any:
         """Send a message and parse the response, retrying on parse failures."""
         messages = [
@@ -46,7 +55,7 @@ class BaseAgent(abc.ABC):
 
         last_error: Exception | None = None
         for attempt in range(1, self.max_retries + 1):
-            result = self.provider.generate(messages, self.generation_config)
+            result = self.provider.generate(messages, self._effective_generation_config())
             try:
                 return self.parse_response(result)
             except Exception as e:
