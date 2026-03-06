@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
 
 from alchemy.models.base import GenerationConfig, GenerationResult, Message, ModelProvider
@@ -41,8 +39,10 @@ class MockProvider(ModelProvider):
 @pytest.fixture
 def mock_provider():
     """Create a MockProvider factory."""
+
     def _factory(responses: list[str] | None = None) -> MockProvider:
         return MockProvider(responses)
+
     return _factory
 
 

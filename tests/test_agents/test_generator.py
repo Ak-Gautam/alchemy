@@ -10,7 +10,11 @@ from alchemy.agents.generator import GeneratorAgent
 def test_generator_parses_array(mock_provider, sample_plan):
     samples = json.dumps([
         {"question": "What is H2O?", "answer": "Water", "difficulty": "easy"},
-        {"question": "Explain DNA replication", "answer": "DNA copies itself", "difficulty": "hard"},
+        {
+            "question": "Explain DNA replication",
+            "answer": "DNA copies itself",
+            "difficulty": "hard",
+        },
     ])
     provider = mock_provider([samples])
     agent = GeneratorAgent(provider)
