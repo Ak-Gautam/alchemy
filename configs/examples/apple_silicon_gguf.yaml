@@ -1,0 +1,48 @@
+# Example: Apple Silicon local GGUF generation through llama.cpp + Metal
+# Requires a local llama-server process exposing an OpenAI-compatible API.
+# Example:
+#   llama-server \
+#     --model /Users/gautam/model_storage/Qwen3.5-9B-UD-Q4_K_XL.gguf \
+#     --host 127.0.0.1 \
+#     --port 8091 \
+#     --ctx-size 8192 \
+#     --n-gpu-layers 999 \
+#     --flash-attn on \
+#     --jinja
+
+planner_model:
+  provider_type: llamacpp
+  model_id: Qwen3.5-9B-UD-Q4_K_XL.gguf
+  init:
+    base_url: http://127.0.0.1:8091/v1
+    api_key: local
+  generation:
+    temperature: 0.2
+    max_tokens: 2048
+
+generator_model:
+  provider_type: llamacpp
+  model_id: Qwen3.5-9B-UD-Q4_K_XL.gguf
+  init:
+    base_url: http://127.0.0.1:8091/v1
+    api_key: local
+  generation:
+    temperature: 0.8
+    top_p: 0.95
+    max_tokens: 4096
+
+validator_model:
+  provider_type: llamacpp
+  model_id: Qwen3.5-9B-UD-Q4_K_XL.gguf
+  init:
+    base_url: http://127.0.0.1:8091/v1
+    api_key: local
+  generation:
+    temperature: 0.0
+    max_tokens: 1024
+
+output_format: huggingface
+output_path: ./output/apple_gguf
+num_samples: 100
+batch_size: 10
+min_quality_score: 0.7

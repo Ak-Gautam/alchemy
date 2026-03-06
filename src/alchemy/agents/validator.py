@@ -6,8 +6,8 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
+from alchemy.exceptions import ValidationError
 from alchemy.models.base import GenerationResult
-from alchemy.pipeline.plan import GenerationPlan
 from alchemy.prompts.validator_prompts import build_validator_system_prompt
 from alchemy.utils.json_parsing import parse_json_payload
 
@@ -26,8 +26,10 @@ class ValidationResult:
 class ValidatorAgent(BaseAgent):
     """Checks generated samples for quality and schema adherence."""
 
+    expects_json = True
+
     def system_prompt(self, **kwargs: Any) -> str:
-        plan: GenerationPlan = kwargs["plan"]
+        plan = kwargs["plan"]
         return build_validator_system_prompt(plan)
 
     def parse_response(self, result: GenerationResult) -> list[dict[str, Any]]:
@@ -38,7 +40,7 @@ class ValidatorAgent(BaseAgent):
 
     def validate_batch(
         self,
-        plan: GenerationPlan,
+        plan: Any,
         samples: list[dict[str, Any]],
     ) -> list[ValidationResult]:
         """Validate a batch of samples against the plan."""
@@ -51,10 +53,28 @@ class ValidatorAgent(BaseAgent):
         )
         raw_results = self.invoke(user_msg, plan=plan)
 
+        if len(raw_results) != len(samples):
+            raise ValidationError(
+                "Validator returned the wrong number of results",
+                details=f"expected {len(samples)}, got {len(raw_results)}",
+            )
+
         validated = []
+        seen_indices: set[int] = set()
         for i, vr in enumerate(raw_results):
             idx = vr.get("index", i)
-            sample = samples[idx] if idx < len(samples) else samples[i]
+            if not isinstance(idx, int) or idx < 0 or idx >= len(samples):
+                raise ValidationError(
+                    "Validator returned an invalid sample index",
+                    details=f"index={idx!r}, batch_size={len(samples)}",
+                )
+            if idx in seen_indices:
+                raise ValidationError(
+                    "Validator returned duplicate sample indices",
+                    details=f"duplicate index {idx}",
+                )
+            seen_indices.add(idx)
+            sample = samples[idx]
             validated.append(
                 ValidationResult(
                     sample=sample,

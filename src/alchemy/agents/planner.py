@@ -15,6 +15,8 @@ from .base import BaseAgent
 class PlannerAgent(BaseAgent):
     """Analyzes a user prompt and produces a GenerationPlan."""
 
+    expects_json = True
+
     def system_prompt(self, **kwargs: Any) -> str:
         return build_planner_system_prompt(**kwargs)
 
