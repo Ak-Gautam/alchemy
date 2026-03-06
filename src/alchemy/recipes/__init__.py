@@ -8,6 +8,11 @@ _BUILTIN_RECIPES: dict[str, type[BaseRecipe]] = {
 }
 
 
+def list_recipe_names() -> list[str]:
+    """Return sorted built-in recipe names."""
+    return sorted(_BUILTIN_RECIPES)
+
+
 def get_recipe(name: str) -> BaseRecipe:
     """Instantiate a built-in recipe by name."""
     cls = _BUILTIN_RECIPES.get(name)
@@ -16,4 +21,10 @@ def get_recipe(name: str) -> BaseRecipe:
     return cls()
 
 
-__all__ = ["BaseRecipe", "LanguageConstraints", "TextCompressionPairsRecipe", "get_recipe"]
+__all__ = [
+    "BaseRecipe",
+    "LanguageConstraints",
+    "TextCompressionPairsRecipe",
+    "get_recipe",
+    "list_recipe_names",
+]
