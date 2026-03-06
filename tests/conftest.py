@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import MagicMock
 
 import pytest
 
 from alchemy.models.base import GenerationConfig, GenerationResult, Message, ModelProvider
 from alchemy.pipeline.plan import FieldSchema, GenerationPlan
+from alchemy.spec.plan import GenerationPlan as SchemaGenerationPlan
 
 
 class MockProvider(ModelProvider):
@@ -81,4 +81,42 @@ def sample_plan() -> GenerationPlan:
         ],
         diversity_dimensions=["topic", "difficulty"],
         quality_criteria=["factual accuracy", "clarity"],
+    )
+
+
+@pytest.fixture
+def sample_schema_plan() -> SchemaGenerationPlan:
+    """A sample schema-first generation plan for testing."""
+    return SchemaGenerationPlan(
+        dataset_name="instruction_pairs",
+        description="Instruction to completion pairs",
+        row_schema={
+            "type": "object",
+            "properties": {
+                "instruction": {"type": "string", "minLength": 5},
+                "completion": {"type": "string", "minLength": 5},
+                "difficulty": {"type": "string", "enum": ["easy", "medium", "hard"]},
+            },
+            "required": ["instruction", "completion"],
+            "additionalProperties": False,
+        },
+        defaults={"num_rows": 100, "batch_size": 10},
+        variation_spec={
+            "axes": [
+                {
+                    "name": "difficulty",
+                    "values": ["easy", "medium", "hard"],
+                    "distribution": {"easy": 0.3, "medium": 0.5, "hard": 0.2},
+                }
+            ]
+        },
+        quality_rubric=["factuality", "clarity", "diversity"],
+        example_rows=[
+            {
+                "instruction": "Explain recursion with a simple example.",
+                "completion": "Recursion is a function calling itself...",
+                "difficulty": "easy",
+            }
+        ],
+        safety={"allow_pii": False, "disallowed_categories": ["self-harm"]},
     )

@@ -28,3 +28,34 @@ across all generated samples
 Think carefully about the domain. Design fields that capture all necessary information for \
 training an AI model. Consider edge cases and ensure the schema supports rich diversity. \
 Output ONLY valid JSON, no markdown fences, no explanation."""
+
+
+def build_schema_planner_system_prompt(**kwargs: object) -> str:
+    return """\
+You are an expert dataset architect. Produce a schema-first generation plan as ONE JSON object.
+
+Output JSON fields:
+- "dataset_name": short snake_case dataset name
+- "description": concise purpose statement
+- "row_schema": JSON Schema for one row (must be type=object with properties)
+- "defaults": object with:
+    - "num_rows": integer >= 1
+    - "batch_size": integer >= 1 and <= num_rows
+- "variation_spec": object with:
+    - "axes": array of axis objects:
+        - "name": string
+        - "values": array of strings
+        - optional "distribution": object of value->probability summing to 1.0
+    - optional "constraints": object of global diversity constraints
+- "quality_rubric": array of short quality criteria strings
+- "example_rows": array of 2-5 valid rows matching row_schema
+- "safety": object with:
+    - "allow_pii": boolean
+    - "disallowed_categories": array of strings
+- "metadata": object for optional metadata
+
+Rules:
+1. row_schema must include "type":"object" and "properties".
+2. Use strict, practical constraints for training-quality data.
+3. Keep examples diverse; do not duplicate template wording.
+4. Return JSON only, no markdown fences, no explanation."""
