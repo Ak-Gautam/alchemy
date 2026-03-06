@@ -1,11 +1,10 @@
-# Rust Extensions (Planned)
+# Rust Extensions (Future)
 
-This directory will contain Rust crates for performance-critical components,
-built with PyO3 and maturin.
+This directory is reserved for Rust performance extensions via PyO3 + maturin.
 
-Planned modules:
-- Fast structural validation
-- Deduplication via similarity hashing
-- Batch output serialization
+Planned components:
+- **Fast structural validation** — validate thousands of samples against a schema
+- **Deduplication** — similarity hashing across large sample sets
+- **Batch serialization** — high-throughput output writing
 
-These will be added once Python bottlenecks are identified through profiling.
+The Rust extension will be importable as `alchemy._core` with a Python fallback.
