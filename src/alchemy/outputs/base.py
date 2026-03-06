@@ -5,7 +5,7 @@ from __future__ import annotations
 import abc
 from typing import Any
 
-from alchemy.pipeline.plan import GenerationPlan
+from alchemy.pipeline.plans import PlanType
 
 
 class OutputAdapter(abc.ABC):
@@ -15,7 +15,7 @@ class OutputAdapter(abc.ABC):
         self.output_path = output_path
 
     @abc.abstractmethod
-    def write(self, samples: list[dict[str, Any]], plan: GenerationPlan) -> str:
+    def write(self, samples: list[dict[str, Any]], plan: PlanType | None) -> str:
         """Write samples and return the output path."""
         ...
 

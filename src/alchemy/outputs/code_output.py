@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from alchemy.pipeline.plan import GenerationPlan
+from alchemy.pipeline.plans import PlanType, plan_code_field
 
 from .base import OutputAdapter
 
@@ -18,19 +18,14 @@ class CodeOutputAdapter(OutputAdapter):
     Falls back to writing each sample as a JSON file.
     """
 
-    def write(self, samples: list[dict[str, Any]], plan: GenerationPlan) -> str:
+    def write(self, samples: list[dict[str, Any]], plan: PlanType | None) -> str:
         out_dir = Path(self.output_path)
         out_dir.mkdir(parents=True, exist_ok=True)
 
         # Find the code field and optional language constraint
-        code_field = None
-        extension = ".txt"
-        for field_def in plan.fields:
-            if field_def.field_type == "code":
-                code_field = field_def.name
-                lang = field_def.constraints.get("language", "")
-                extension = _lang_to_ext(lang)
-                break
+        code_field, extension = (None, ".txt")
+        if plan is not None:
+            code_field, extension = plan_code_field(plan)
 
         for i, sample in enumerate(samples):
             filename = f"sample_{i:05d}"
@@ -50,27 +45,3 @@ class CodeOutputAdapter(OutputAdapter):
                 f.write(json.dumps(sample, ensure_ascii=False) + "\n")
 
         return str(out_dir)
-
-
-def _lang_to_ext(language: str) -> str:
-    """Map common language names to file extensions."""
-    mapping = {
-        "python": ".py",
-        "javascript": ".js",
-        "typescript": ".ts",
-        "rust": ".rs",
-        "go": ".go",
-        "java": ".java",
-        "c": ".c",
-        "cpp": ".cpp",
-        "c++": ".cpp",
-        "ruby": ".rb",
-        "swift": ".swift",
-        "kotlin": ".kt",
-        "sql": ".sql",
-        "html": ".html",
-        "css": ".css",
-        "shell": ".sh",
-        "bash": ".sh",
-    }
-    return mapping.get(language.lower(), ".txt")

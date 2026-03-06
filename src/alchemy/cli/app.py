@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import typer
 from rich.console import Console
@@ -13,9 +13,11 @@ from rich.syntax import Syntax
 
 from alchemy.config.loader import load_pipeline_config
 from alchemy.config.settings import ModelConfig, PipelineConfig
+from alchemy.pipeline.artifacts import write_run_artifacts
 from alchemy.pipeline.context import PipelineContext
-from alchemy.pipeline.plan import GenerationPlan
+from alchemy.pipeline.datasets import merge_rows, write_rows
 from alchemy.pipeline.engine import PipelineEngine
+from alchemy.pipeline.plans import PlanType, load_plan, set_plan_total_rows
 from alchemy.recipes import get_recipe, list_recipe_names
 
 app = typer.Typer(
@@ -42,19 +44,24 @@ def _parse_model_string(model_str: str) -> ModelConfig:
     return ModelConfig(provider_type=provider, model_id=model_id)
 
 
-def _build_recipe_prompt_suffix(recipe_name: str) -> str:
+def _build_recipe_plan(
+    recipe_name: str,
+    *,
+    user_prompt: str,
+    num_samples: int,
+    batch_size: int,
+) -> PlanType:
     recipe = get_recipe(recipe_name)
-    plan = recipe.build_plan()
-    variation_axes = [axis.name for axis in plan.variation_spec.axes]
-    quality_lines = "\n".join(f"- {item}" for item in plan.quality_rubric) or "- (none)"
-    return (
-        "\n\nRecipe constraints:\n"
-        f"- recipe_name: {recipe.name}\n"
-        f"- recipe_description: {recipe.description}\n"
-        f"- row_schema: {json.dumps(plan.row_schema, ensure_ascii=False)}\n"
-        f"- variation_axes: {', '.join(variation_axes) if variation_axes else '(none)'}\n"
-        f"- quality_rubric:\n{quality_lines}"
-    )
+    plan = recipe.build_plan(num_rows=num_samples, batch_size=batch_size)
+    plan.description = f"{recipe.description} User intent: {user_prompt}"
+    plan.metadata = {**plan.metadata, "user_prompt": user_prompt}
+    return plan
+
+
+def _load_plan_file(path: Path) -> PlanType:
+    with path.open("r", encoding="utf-8") as file_obj:
+        plan_data: dict[str, Any] = json.load(file_obj)
+    return load_plan(plan_data)
 
 
 def _resolve_run_sizes(
@@ -84,19 +91,24 @@ def generate(
         "huggingface", "--format", "-f", help="Output format: json, code, huggingface"
     ),
     output_path: str = typer.Option("./output", "--output", "-o", help="Output path"),
-    recipe: Optional[str] = typer.Option(
+    recipe: str | None = typer.Option(
         None, "--recipe", help="Built-in recipe name (e.g. text_compression_pairs)"
     ),
-    config_file: Optional[Path] = typer.Option(
+    plan_file: Path | None = typer.Option(
+        None,
+        "--plan-file",
+        help="Saved plan JSON to reuse for chunked generation or repeatable runs",
+    ),
+    config_file: Path | None = typer.Option(
         None, "--config", "-c", help="Path to pipeline YAML config"
     ),
-    planner: Optional[str] = typer.Option(
+    planner: str | None = typer.Option(
         None, "--planner", help="Planner model (provider:model_id)"
     ),
-    generator: Optional[str] = typer.Option(
+    generator: str | None = typer.Option(
         None, "--generator", help="Generator model (provider:model_id)"
     ),
-    validator: Optional[str] = typer.Option(
+    validator: str | None = typer.Option(
         None, "--validator", help="Validator model (provider:model_id)"
     ),
     batch_size: int | None = typer.Option(None, "--batch-size", "-b", help="Samples per batch"),
@@ -113,6 +125,11 @@ def generate(
         "--postprocess-hf-output",
         help="Output path for HF postprocess dataset (requires --postprocess-hf-from-jsonl)",
     ),
+    chunk_id: str | None = typer.Option(
+        None,
+        "--chunk-id",
+        help="Optional chunk/session identifier to bias each run toward distinct rows",
+    ),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable debug logging"),
 ) -> None:
     """Generate a synthetic dataset from a natural language description."""
@@ -128,8 +145,20 @@ def generate(
         batch_size=batch_size,
     )
     final_prompt = prompt
+    plan_override: PlanType | None = None
+    if recipe and plan_file is not None:
+        console.print("[red]Error:[/] --recipe and --plan-file are mutually exclusive")
+        raise typer.Exit(1)
     if recipe:
-        final_prompt += _build_recipe_prompt_suffix(recipe)
+        plan_override = _build_recipe_plan(
+            recipe,
+            user_prompt=prompt,
+            num_samples=final_num_samples,
+            batch_size=final_batch_size,
+        )
+    elif plan_file is not None:
+        plan_override = _load_plan_file(plan_file)
+        set_plan_total_rows(plan_override, final_num_samples)
 
     # Apply CLI overrides
     config.output_format = output_format
@@ -149,7 +178,12 @@ def generate(
         config.validator_model = _parse_model_string(validator)
 
     engine = PipelineEngine.from_config(config)
-    ctx = engine.run(final_prompt, num_samples=final_num_samples)
+    ctx = engine.run(
+        final_prompt,
+        num_samples=final_num_samples,
+        plan=plan_override,
+        chunk_id=chunk_id,
+    )
 
     console.print(f"\n[bold green]Done![/] {ctx.metrics.get('valid_count', 0)} valid samples.")
     if ctx.artifact_paths:
@@ -162,13 +196,21 @@ def generate(
 @app.command()
 def plan(
     prompt: str = typer.Argument(..., help="Description of the dataset"),
-    recipe: Optional[str] = typer.Option(
+    recipe: str | None = typer.Option(
         None, "--recipe", help="Built-in recipe name (e.g. text_compression_pairs)"
     ),
-    config_file: Optional[Path] = typer.Option(
+    num_samples: int | None = typer.Option(None, "--num-samples", "-n", help="Planned row count"),
+    batch_size: int | None = typer.Option(None, "--batch-size", "-b", help="Planned batch size"),
+    output_path: Path | None = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Optional file path to save the plan JSON",
+    ),
+    config_file: Path | None = typer.Option(
         None, "--config", "-c", help="Path to pipeline YAML config"
     ),
-    planner: Optional[str] = typer.Option(
+    planner: str | None = typer.Option(
         None, "--planner", help="Planner model (provider:model_id)"
     ),
     verbose: bool = typer.Option(False, "--verbose", "-v"),
@@ -181,15 +223,31 @@ def plan(
     if planner:
         config.planner_model = _parse_model_string(planner)
 
-    final_prompt = prompt
-    if recipe:
-        final_prompt += _build_recipe_prompt_suffix(recipe)
-
     engine = PipelineEngine.from_config(config)
-    generation_plan = engine.run_plan_only(final_prompt)
+    plan_override: PlanType | None = None
+    if recipe:
+        resolved_num_samples, resolved_batch_size = _resolve_run_sizes(
+            config=config,
+            recipe_name=recipe,
+            num_samples=num_samples,
+            batch_size=batch_size,
+        )
+        plan_override = _build_recipe_plan(
+            recipe,
+            user_prompt=prompt,
+            num_samples=resolved_num_samples,
+            batch_size=resolved_batch_size,
+        )
+    generation_plan = engine.run_plan_only(prompt, plan=plan_override)
+
+    plan_json = generation_plan.model_dump_json(indent=2)
+    if output_path is not None:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(plan_json, encoding="utf-8")
+        console.print(f"[bold green]Saved plan:[/] {output_path}")
+        return
 
     console.print("\n[bold]Generation Plan:[/]\n")
-    plan_json = generation_plan.model_dump_json(indent=2)
     console.print(Syntax(plan_json, "json", theme="monokai"))
 
 
@@ -202,7 +260,7 @@ def validate(
     plan_file: Path | None = typer.Option(
         None, "--plan-file", help="Path to saved plan JSON (from artifacts/plan.json)"
     ),
-    config_file: Optional[Path] = typer.Option(
+    config_file: Path | None = typer.Option(
         None, "--config", "-c", help="Path to pipeline YAML config with schema"
     ),
     verbose: bool = typer.Option(False, "--verbose", "-v"),
@@ -234,9 +292,7 @@ def validate(
 
     ctx = PipelineContext(user_prompt="validation")
     if plan_file is not None:
-        with plan_file.open("r", encoding="utf-8") as file_obj:
-            plan_data: dict[str, Any] = json.load(file_obj)
-        ctx.plan = GenerationPlan.from_dict(plan_data)
+        ctx.plan = _load_plan_file(plan_file)
     else:
         assert prompt is not None
         ctx.plan = engine.run_plan_only(prompt)
@@ -248,6 +304,59 @@ def validate(
         f"[bold green]Validation complete.[/] "
         f"{len(ctx.validated_samples)} valid, {len(ctx.rejected_samples)} rejected."
     )
+
+
+@app.command()
+def merge(
+    inputs: list[Path] = typer.Argument(..., help="Chunk outputs to merge"),
+    output_path: str = typer.Option(
+        "./output/merged.jsonl",
+        "--output",
+        "-o",
+        help="Merged output path",
+    ),
+    output_format: str = typer.Option(
+        "json",
+        "--format",
+        "-f",
+        help="Merged output format: json, jsonl, huggingface, hf",
+    ),
+    plan_file: Path | None = typer.Option(
+        None,
+        "--plan-file",
+        help="Optional plan JSON used to structurally validate merged rows",
+    ),
+) -> None:
+    """Merge chunked datasets into one deduplicated dataset."""
+    plan = _load_plan_file(plan_file) if plan_file is not None else None
+    merged_rows, duplicate_rows, invalid_rows = merge_rows(inputs, plan=plan)
+    final_output_path = write_rows(
+        rows=merged_rows,
+        output_path=output_path,
+        output_format=output_format,
+        plan=plan,
+    )
+
+    metrics = {
+        "raw_sample_count": len(merged_rows) + len(duplicate_rows) + len(invalid_rows),
+        "valid_count": len(merged_rows),
+        "rejected_count": len(duplicate_rows) + len(invalid_rows),
+        "duplicate_count": len(duplicate_rows),
+        "invalid_count": len(invalid_rows),
+    }
+    artifact_paths = write_run_artifacts(
+        output_path=final_output_path,
+        accepted_samples=merged_rows,
+        rejected_samples=duplicate_rows + invalid_rows,
+        metrics=metrics,
+        plan=plan.model_dump() if plan is not None else None,
+    )
+
+    console.print(f"[bold green]Merged.[/] {len(merged_rows)} rows written to {final_output_path}")
+    console.print(
+        f"[cyan]Rejected:[/] {len(duplicate_rows)} duplicates, {len(invalid_rows)} invalid"
+    )
+    console.print(f"[cyan]Artifacts:[/] {artifact_paths['artifacts_dir']}")
 
 
 @app.command("recipes")
