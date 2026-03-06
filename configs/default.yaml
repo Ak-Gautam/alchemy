@@ -1,6 +1,7 @@
 # Default Alchemy pipeline configuration
-# All models default to local MLX inference
-# TODO update to latest Unsloth qwen 3.5 models
+# MLX remains the default here for compatibility, but on Apple Silicon with
+# Unsloth GGUF models the preferred local path is llama.cpp + Metal.
+# See configs/examples/apple_silicon_gguf.yaml.
 planner_model:
   provider_type: mlx
   model_id: mlx-community/Qwen2.5-7B-Instruct-4bit
