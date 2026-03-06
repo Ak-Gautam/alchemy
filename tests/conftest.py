@@ -18,6 +18,7 @@ class MockProvider(ModelProvider):
         self._responses = responses or []
         self._call_index = 0
         self.call_history: list[list[Message]] = []
+        self.config_history: list[GenerationConfig | None] = []
 
     def generate(
         self,
@@ -25,6 +26,7 @@ class MockProvider(ModelProvider):
         config: GenerationConfig | None = None,
     ) -> GenerationResult:
         self.call_history.append(messages)
+        self.config_history.append(config)
         if self._call_index < len(self._responses):
             text = self._responses[self._call_index]
             self._call_index += 1

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+from alchemy.models.base import GenerationConfig
 
 
 class ModelConfig(BaseModel):
@@ -12,7 +14,24 @@ class ModelConfig(BaseModel):
 
     provider_type: str
     model_id: str
-    options: dict[str, Any] = Field(default_factory=dict)
+    init: dict[str, Any] = Field(default_factory=dict)
+    generation: GenerationConfig = Field(default_factory=GenerationConfig)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_legacy_options(cls, data: Any) -> Any:
+        """Support legacy configs that used `options` for provider init kwargs."""
+        if not isinstance(data, dict):
+            return data
+        if "init" not in data and isinstance(data.get("options"), dict):
+            data = dict(data)
+            data["init"] = data["options"]
+        return data
+
+    @property
+    def options(self) -> dict[str, Any]:
+        """Backward-compatible alias for provider init kwargs."""
+        return self.init
 
 
 class PipelineConfig(BaseModel):

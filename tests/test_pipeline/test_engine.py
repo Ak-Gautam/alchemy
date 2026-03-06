@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 from alchemy.config.settings import PipelineConfig
+from alchemy.models.base import GenerationConfig
 from alchemy.outputs.base import OutputAdapter
 from alchemy.pipeline.engine import PipelineEngine
 
@@ -39,3 +40,44 @@ def test_pipeline_engine_full_run(mock_provider, sample_plan, tmp_path):
     assert ctx.plan.dataset_name == "test_qa"
     assert len(ctx.validated_samples) == 2
     assert ctx.output_path is not None
+
+
+def test_pipeline_engine_passes_per_agent_generation_config(
+    mock_provider,
+    sample_plan,
+    tmp_path,
+):
+    plan_json = sample_plan.model_dump_json()
+    sample_batch = json.dumps([
+        {"question": "What is H2O?", "answer": "Water is H2O.", "difficulty": "easy"},
+    ])
+    validation_result = json.dumps([
+        {"index": 0, "is_valid": True, "score": 0.9, "issues": []},
+    ])
+
+    planner = mock_provider([plan_json])
+    generator = mock_provider([sample_batch])
+    validator = mock_provider([validation_result])
+
+    output_path = str(tmp_path / "test_output.jsonl")
+    output_adapter = OutputAdapter.create("json", output_path)
+
+    config = PipelineConfig(num_samples=1, batch_size=1)
+    engine = PipelineEngine(
+        planner,
+        generator,
+        validator,
+        output_adapter,
+        config,
+        planner_generation_config=GenerationConfig(temperature=0.1, max_tokens=111),
+        generator_generation_config=GenerationConfig(temperature=0.8, max_tokens=222),
+        validator_generation_config=GenerationConfig(temperature=0.0, max_tokens=333),
+    )
+    engine.run("Generate chemistry Q&A", num_samples=1)
+
+    assert planner.config_history[0] is not None
+    assert planner.config_history[0].max_tokens == 111
+    assert generator.config_history[0] is not None
+    assert generator.config_history[0].max_tokens == 222
+    assert validator.config_history[0] is not None
+    assert validator.config_history[0].max_tokens == 333

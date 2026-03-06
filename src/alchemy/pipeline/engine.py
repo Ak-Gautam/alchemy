@@ -13,7 +13,7 @@ from alchemy.agents.generator import GeneratorAgent
 from alchemy.agents.planner import PlannerAgent
 from alchemy.agents.validator import ValidatorAgent
 from alchemy.config.settings import PipelineConfig
-from alchemy.models.base import ModelProvider
+from alchemy.models.base import GenerationConfig, ModelProvider
 from alchemy.models.registry import create_provider
 from alchemy.outputs.base import OutputAdapter
 from alchemy.schemas.dynamic import validate_sample_structure
@@ -35,10 +35,22 @@ class PipelineEngine:
         validator_provider: ModelProvider,
         output_adapter: OutputAdapter,
         config: PipelineConfig | None = None,
+        planner_generation_config: GenerationConfig | None = None,
+        generator_generation_config: GenerationConfig | None = None,
+        validator_generation_config: GenerationConfig | None = None,
     ):
-        self.planner = PlannerAgent(planner_provider)
-        self.generator = GeneratorAgent(generator_provider)
-        self.validator = ValidatorAgent(validator_provider)
+        self.planner = PlannerAgent(
+            planner_provider,
+            generation_config=planner_generation_config,
+        )
+        self.generator = GeneratorAgent(
+            generator_provider,
+            generation_config=generator_generation_config,
+        )
+        self.validator = ValidatorAgent(
+            validator_provider,
+            generation_config=validator_generation_config,
+        )
         self.output_adapter = output_adapter
         self.config = config or PipelineConfig()
 
@@ -48,21 +60,28 @@ class PipelineEngine:
         planner_provider = create_provider(
             config.planner_model.provider_type,
             config.planner_model.model_id,
-            **config.planner_model.options,
+            **config.planner_model.init,
         )
         generator_provider = create_provider(
             config.generator_model.provider_type,
             config.generator_model.model_id,
-            **config.generator_model.options,
+            **config.generator_model.init,
         )
         validator_provider = create_provider(
             config.validator_model.provider_type,
             config.validator_model.model_id,
-            **config.validator_model.options,
+            **config.validator_model.init,
         )
         output_adapter = OutputAdapter.create(config.output_format, config.output_path)
         return cls(
-            planner_provider, generator_provider, validator_provider, output_adapter, config
+            planner_provider,
+            generator_provider,
+            validator_provider,
+            output_adapter,
+            config,
+            planner_generation_config=config.planner_model.generation,
+            generator_generation_config=config.generator_model.generation,
+            validator_generation_config=config.validator_model.generation,
         )
 
     def run(self, user_prompt: str, num_samples: int | None = None) -> PipelineContext:
