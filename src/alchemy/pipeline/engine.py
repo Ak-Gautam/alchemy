@@ -16,6 +16,7 @@ from alchemy.config.settings import PipelineConfig
 from alchemy.models.base import GenerationConfig, ModelProvider
 from alchemy.models.registry import create_provider
 from alchemy.outputs.base import OutputAdapter
+from alchemy.quality.dedupe import dedupe_exact_rows
 from alchemy.schemas.dynamic import validate_sample_structure
 
 from .artifacts import write_run_artifacts
@@ -100,10 +101,13 @@ class PipelineEngine:
         # Phase 3: Validation
         ctx.validated_samples, ctx.rejected_samples = self._run_validation(ctx)
 
-        # Phase 4: Output
+        # Phase 4: Exact dedupe
+        self._run_deduplication(ctx)
+
+        # Phase 5: Output
         ctx.output_path = self._run_output(ctx)
 
-        # Phase 5: Run artifacts
+        # Phase 6: Run artifacts
         ctx.artifact_paths = self._run_artifacts(ctx)
 
         self._print_summary(ctx)
@@ -219,7 +223,7 @@ class PipelineEngine:
     def _run_output(self, ctx: PipelineContext) -> str:
         plan = ctx.plan
         assert plan is not None
-        console.print(f"\n[bold magenta]Phase 4:[/] Writing output ({self.config.output_format})...")
+        console.print(f"\n[bold magenta]Phase 5:[/] Writing output ({self.config.output_format})...")
         path = self.output_adapter.write(ctx.validated_samples, plan)
         console.print(f"  Saved to: {path}")
         return path
@@ -234,6 +238,8 @@ class PipelineEngine:
             f"  Samples:     {m.get('valid_count', 0)} valid / "
             f"{m.get('raw_sample_count', 0)} generated"
         )
+        if "duplicate_count" in m:
+            console.print(f"  Duplicates:  {m.get('duplicate_count', 0)} removed")
         console.print(f"  Output:      {ctx.output_path}")
         artifacts_dir = ctx.artifact_paths.get("artifacts_dir")
         if artifacts_dir:
@@ -242,7 +248,7 @@ class PipelineEngine:
     def _run_artifacts(self, ctx: PipelineContext) -> dict[str, str]:
         output_path = ctx.output_path
         assert output_path is not None
-        console.print("\n[bold cyan]Phase 5:[/] Writing run artifacts...")
+        console.print("\n[bold cyan]Phase 6:[/] Writing run artifacts...")
         artifact_paths = write_run_artifacts(
             output_path=output_path,
             accepted_samples=ctx.validated_samples,
@@ -251,3 +257,22 @@ class PipelineEngine:
         )
         console.print(f"  Saved run artifacts to: {artifact_paths['artifacts_dir']}")
         return artifact_paths
+
+    def _run_deduplication(self, ctx: PipelineContext) -> None:
+        console.print(
+            f"\n[bold white]Phase 4:[/] Deduplicating {len(ctx.validated_samples)} validated samples..."
+        )
+        unique_rows, duplicate_rows = dedupe_exact_rows(ctx.validated_samples)
+        duplicate_count = len(duplicate_rows)
+        for sample in duplicate_rows:
+            ctx.rejected_samples.append(
+                {"sample": sample, "issues": ["duplicate_exact"], "score": 0.0}
+            )
+        ctx.validated_samples = unique_rows
+        ctx.metrics["duplicate_count"] = duplicate_count
+        ctx.metrics["valid_count"] = len(ctx.validated_samples)
+        ctx.metrics["rejected_count"] = len(ctx.rejected_samples)
+        console.print(
+            f"  Unique after dedupe: {len(ctx.validated_samples)}, "
+            f"duplicates removed: {duplicate_count}"
+        )

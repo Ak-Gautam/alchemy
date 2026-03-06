@@ -86,3 +86,32 @@ def test_pipeline_engine_passes_per_agent_generation_config(
     assert generator.config_history[0].max_tokens == 222
     assert validator.config_history[0] is not None
     assert validator.config_history[0].max_tokens == 333
+
+
+def test_pipeline_engine_dedupes_exact_duplicates(mock_provider, sample_plan, tmp_path):
+    plan_json = sample_plan.model_dump_json()
+    duplicate_sample = {
+        "question": "What is the chemical formula of water?",
+        "answer": "Water is H2O.",
+        "difficulty": "easy",
+    }
+    sample_batch = json.dumps([duplicate_sample, duplicate_sample])
+    validation_result = json.dumps([
+        {"index": 0, "is_valid": True, "score": 0.95, "issues": []},
+        {"index": 1, "is_valid": True, "score": 0.92, "issues": []},
+    ])
+
+    planner = mock_provider([plan_json])
+    generator = mock_provider([sample_batch])
+    validator = mock_provider([validation_result])
+
+    output_path = str(tmp_path / "dedupe_output.jsonl")
+    output_adapter = OutputAdapter.create("json", output_path)
+    config = PipelineConfig(num_samples=2, batch_size=2)
+    engine = PipelineEngine(planner, generator, validator, output_adapter, config)
+
+    ctx = engine.run("Generate chemistry Q&A", num_samples=2)
+
+    assert len(ctx.validated_samples) == 1
+    assert ctx.metrics["duplicate_count"] == 1
+    assert any("duplicate_exact" in item["issues"] for item in ctx.rejected_samples)
