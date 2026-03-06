@@ -5,15 +5,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from alchemy.pipeline.plan import GenerationPlan
-
 from .base import OutputAdapter
 
 
 class HuggingFaceOutputAdapter(OutputAdapter):
     """Write samples as a HuggingFace Dataset saved to disk."""
 
-    def write(self, samples: list[dict[str, Any]], plan: GenerationPlan) -> str:
+    def write(self, samples: list[dict[str, Any]], plan: Any = None) -> str:
         from datasets import Dataset
 
         path = Path(self.output_path)

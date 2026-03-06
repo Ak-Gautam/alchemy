@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from alchemy.pipeline.plan import GenerationPlan
+from alchemy.pipeline.plans import PlanType
 
 
 @dataclass
@@ -13,7 +13,7 @@ class PipelineContext:
     """Mutable shared state carried through all pipeline steps."""
 
     user_prompt: str
-    plan: GenerationPlan | None = None
+    plan: PlanType | None = None
     raw_samples: list[dict[str, Any]] = field(default_factory=list)
     validated_samples: list[dict[str, Any]] = field(default_factory=list)
     rejected_samples: list[dict[str, Any]] = field(default_factory=list)

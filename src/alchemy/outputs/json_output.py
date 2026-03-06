@@ -6,15 +6,13 @@ import json
 from pathlib import Path
 from typing import Any
 
-from alchemy.pipeline.plan import GenerationPlan
-
 from .base import OutputAdapter
 
 
 class JSONOutputAdapter(OutputAdapter):
     """Write samples as a JSONL file (one JSON object per line)."""
 
-    def write(self, samples: list[dict[str, Any]], plan: GenerationPlan) -> str:
+    def write(self, samples: list[dict[str, Any]], plan: Any = None) -> str:
         path = Path(self.output_path)
         path.parent.mkdir(parents=True, exist_ok=True)
 

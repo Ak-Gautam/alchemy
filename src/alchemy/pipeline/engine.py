@@ -10,19 +10,26 @@ from rich.console import Console
 from rich.progress import BarColumn, MofNCompleteColumn, Progress, SpinnerColumn, TextColumn
 
 from alchemy.agents.generator import GeneratorAgent
-from alchemy.agents.planner import PlannerAgent
+from alchemy.agents.schema_planner import SchemaPlannerAgent
 from alchemy.agents.validator import ValidatorAgent
 from alchemy.config.settings import PipelineConfig
+from alchemy.exceptions import GenerationError
 from alchemy.models.base import GenerationConfig, ModelProvider
 from alchemy.models.registry import create_provider
 from alchemy.outputs.base import OutputAdapter
 from alchemy.outputs.hf_postprocess import convert_jsonl_to_hf_dataset
+from alchemy.pipeline.plans import (
+    PlanType,
+    plan_batch_size,
+    plan_total_rows,
+    set_plan_total_rows,
+    validate_row_against_plan,
+)
 from alchemy.quality.dedupe import dedupe_exact_rows
-from alchemy.schemas.dynamic import validate_sample_structure
+from alchemy.recipes import get_recipe
 
 from .artifacts import write_run_artifacts
 from .context import PipelineContext
-from .plan import GenerationPlan
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -42,7 +49,7 @@ class PipelineEngine:
         generator_generation_config: GenerationConfig | None = None,
         validator_generation_config: GenerationConfig | None = None,
     ):
-        self.planner = PlannerAgent(
+        self.planner = SchemaPlannerAgent(
             planner_provider,
             generation_config=planner_generation_config,
         )
@@ -87,17 +94,26 @@ class PipelineEngine:
             validator_generation_config=config.validator_model.generation,
         )
 
-    def run(self, user_prompt: str, num_samples: int | None = None) -> PipelineContext:
+    def run(
+        self,
+        user_prompt: str,
+        num_samples: int | None = None,
+        *,
+        plan: PlanType | None = None,
+        chunk_id: str | None = None,
+    ) -> PipelineContext:
         """Execute the full pipeline end-to-end."""
         ctx = PipelineContext(user_prompt=user_prompt)
+        if chunk_id is not None:
+            ctx.metrics["chunk_id"] = chunk_id
 
         # Phase 1: Planning
-        ctx.plan = self._run_planning(ctx)
+        ctx.plan = plan if plan is not None else self._run_planning(ctx)
         if num_samples is not None:
-            ctx.plan.num_samples = num_samples
+            set_plan_total_rows(ctx.plan, num_samples)
 
         # Phase 2: Generation
-        ctx.raw_samples = self._run_generation(ctx)
+        ctx.raw_samples = self._run_generation(ctx, chunk_id=chunk_id)
 
         # Phase 3: Validation
         ctx.validated_samples, ctx.rejected_samples = self._run_validation(ctx)
@@ -114,12 +130,14 @@ class PipelineEngine:
         self._print_summary(ctx)
         return ctx
 
-    def run_plan_only(self, user_prompt: str) -> GenerationPlan:
+    def run_plan_only(self, user_prompt: str, *, plan: PlanType | None = None) -> PlanType:
         """Run only the planning phase and return the plan."""
         ctx = PipelineContext(user_prompt=user_prompt)
+        if plan is not None:
+            return plan
         return self._run_planning(ctx)
 
-    def _run_planning(self, ctx: PipelineContext) -> GenerationPlan:
+    def _run_planning(self, ctx: PipelineContext) -> PlanType:
         console.print("\n[bold blue]Phase 1:[/] Planning dataset schema...")
         start = perf_counter()
         plan = self.planner.plan(ctx.user_prompt)
@@ -127,19 +145,26 @@ class PipelineEngine:
         ctx.metrics["planning_seconds"] = round(elapsed, 2)
         console.print(
             f"  Dataset: [cyan]{plan.dataset_name}[/] — "
-            f"{len(plan.fields)} fields, {plan.num_samples} samples planned"
+            f"{len(plan.row_schema.get('properties', {}))} fields, "
+            f"{plan.defaults.num_rows} samples planned"
         )
         return plan
 
-    def _run_generation(self, ctx: PipelineContext) -> list[dict[str, Any]]:
+    def _run_generation(
+        self,
+        ctx: PipelineContext,
+        *,
+        chunk_id: str | None = None,
+    ) -> list[dict[str, Any]]:
         plan = ctx.plan
         assert plan is not None
         all_samples: list[dict[str, Any]] = []
-        batch_size = plan.batch_size
-        total_batches = (plan.num_samples + batch_size - 1) // batch_size
+        batch_size = plan_batch_size(plan)
+        total_samples = plan_total_rows(plan)
+        total_batches = (total_samples + batch_size - 1) // batch_size
 
         console.print(
-            f"\n[bold green]Phase 2:[/] Generating {plan.num_samples} samples "
+            f"\n[bold green]Phase 2:[/] Generating {total_samples} samples "
             f"in {total_batches} batches..."
         )
         start = perf_counter()
@@ -153,20 +178,39 @@ class PipelineEngine:
         ) as progress:
             task = progress.add_task("Generating", total=total_batches)
             for i in range(total_batches):
-                remaining = plan.num_samples - len(all_samples)
+                remaining = total_samples - len(all_samples)
                 current_batch_size = min(batch_size, remaining)
                 try:
                     batch = self.generator.generate_batch(
-                        plan, batch_size=current_batch_size, batch_index=i
+                        plan,
+                        batch_size=current_batch_size,
+                        batch_index=i,
+                        chunk_id=chunk_id,
                     )
+                    if len(batch) != current_batch_size:
+                        raise GenerationError(
+                            "Generator returned the wrong batch size",
+                            details=f"expected {current_batch_size}, got {len(batch)}",
+                        )
                     all_samples.extend(batch)
                 except Exception as e:
-                    logger.warning("Batch %d failed: %s", i, e)
+                    logger.exception("Batch %d failed", i)
+                    if isinstance(e, GenerationError):
+                        raise
+                    raise GenerationError(
+                        "Generation failed before reaching the requested sample count",
+                        details=f"batch={i}, error={e}",
+                    ) from e
                 progress.advance(task)
 
         elapsed = perf_counter() - start
         ctx.metrics["generation_seconds"] = round(elapsed, 2)
         ctx.metrics["raw_sample_count"] = len(all_samples)
+        if len(all_samples) != total_samples:
+            raise GenerationError(
+                "Generation finished with the wrong number of samples",
+                details=f"expected {total_samples}, got {len(all_samples)}",
+            )
         console.print(f"  Generated {len(all_samples)} raw samples")
         return all_samples
 
@@ -185,7 +229,8 @@ class PipelineEngine:
         # First pass: fast structural validation
         structurally_valid = []
         for sample in samples:
-            issues = validate_sample_structure(sample, plan)
+            issues = validate_row_against_plan(sample, plan)
+            issues.extend(self._validate_recipe_rules(sample, plan))
             if issues:
                 rejected.append({"sample": sample, "issues": issues, "score": 0.0})
             else:
@@ -198,7 +243,7 @@ class PipelineEngine:
             )
 
         # Second pass: LLM validation on structurally valid samples
-        batch_size = plan.batch_size
+        batch_size = plan_batch_size(plan)
         for i in range(0, len(structurally_valid), batch_size):
             batch = structurally_valid[i : i + batch_size]
             try:
@@ -211,8 +256,18 @@ class PipelineEngine:
                             {"sample": vr.sample, "issues": vr.issues, "score": vr.score}
                         )
             except Exception as e:
-                logger.warning("Validation batch %d failed, accepting samples: %s", i, e)
-                valid.extend(batch)
+                logger.warning("Validation batch %d failed, rejecting samples: %s", i, e)
+                ctx.metrics["validation_error_batches"] = (
+                    ctx.metrics.get("validation_error_batches", 0) + 1
+                )
+                for sample in batch:
+                    rejected.append(
+                        {
+                            "sample": sample,
+                            "issues": [f"validator_error: {e}"],
+                            "score": 0.0,
+                        }
+                    )
 
         elapsed = perf_counter() - start
         ctx.metrics["validation_seconds"] = round(elapsed, 2)
@@ -224,7 +279,9 @@ class PipelineEngine:
     def _run_output(self, ctx: PipelineContext) -> str:
         plan = ctx.plan
         assert plan is not None
-        console.print(f"\n[bold magenta]Phase 5:[/] Writing output ({self.config.output_format})...")
+        console.print(
+            f"\n[bold magenta]Phase 5:[/] Writing output ({self.config.output_format})..."
+        )
         path = self.output_adapter.write(ctx.validated_samples, plan)
         console.print(f"  Saved to: {path}")
         return path
@@ -272,7 +329,8 @@ class PipelineEngine:
 
     def _run_deduplication(self, ctx: PipelineContext) -> None:
         console.print(
-            f"\n[bold white]Phase 4:[/] Deduplicating {len(ctx.validated_samples)} validated samples..."
+            "\n[bold white]Phase 4:[/] "
+            f"Deduplicating {len(ctx.validated_samples)} validated samples..."
         )
         unique_rows, duplicate_rows = dedupe_exact_rows(ctx.validated_samples)
         duplicate_count = len(duplicate_rows)
@@ -288,3 +346,12 @@ class PipelineEngine:
             f"  Unique after dedupe: {len(ctx.validated_samples)}, "
             f"duplicates removed: {duplicate_count}"
         )
+
+    def _validate_recipe_rules(self, sample: dict[str, Any], plan: PlanType) -> list[str]:
+        metadata = getattr(plan, "metadata", {})
+        if not isinstance(metadata, dict):
+            return []
+        recipe_name = metadata.get("recipe")
+        if not isinstance(recipe_name, str):
+            return []
+        return get_recipe(recipe_name).validate_row_rules(sample)
