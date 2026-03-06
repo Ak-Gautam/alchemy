@@ -2,22 +2,14 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from alchemy.models.base import GenerationResult
 from alchemy.pipeline.plan import GenerationPlan
 from alchemy.prompts.generator_prompts import build_generator_system_prompt
+from alchemy.utils.json_parsing import parse_json_payload
 
 from .base import BaseAgent
-
-
-def _extract_json(text: str) -> str:
-    """Strip markdown code fences if present."""
-    text = text.strip()
-    if text.startswith("```"):
-        text = text.split("\n", 1)[1].rsplit("```", 1)[0]
-    return text.strip()
 
 
 class GeneratorAgent(BaseAgent):
@@ -28,7 +20,7 @@ class GeneratorAgent(BaseAgent):
         return build_generator_system_prompt(plan)
 
     def parse_response(self, result: GenerationResult) -> list[dict[str, Any]]:
-        data = json.loads(_extract_json(result.text))
+        data = parse_json_payload(result.text)
         if isinstance(data, dict) and "samples" in data:
             return data["samples"]
         if isinstance(data, list):

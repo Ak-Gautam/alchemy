@@ -9,6 +9,7 @@ from typing import Any
 from alchemy.models.base import GenerationResult
 from alchemy.pipeline.plan import GenerationPlan
 from alchemy.prompts.validator_prompts import build_validator_system_prompt
+from alchemy.utils.json_parsing import parse_json_payload
 
 from .base import BaseAgent
 
@@ -22,15 +23,6 @@ class ValidationResult:
     score: float
     issues: list[str]
 
-
-def _extract_json(text: str) -> str:
-    """Strip markdown code fences if present."""
-    text = text.strip()
-    if text.startswith("```"):
-        text = text.split("\n", 1)[1].rsplit("```", 1)[0]
-    return text.strip()
-
-
 class ValidatorAgent(BaseAgent):
     """Checks generated samples for quality and schema adherence."""
 
@@ -39,7 +31,10 @@ class ValidatorAgent(BaseAgent):
         return build_validator_system_prompt(plan)
 
     def parse_response(self, result: GenerationResult) -> list[dict[str, Any]]:
-        return json.loads(_extract_json(result.text))
+        data = parse_json_payload(result.text)
+        if not isinstance(data, list):
+            raise ValueError(f"Expected a list of validation results, got {type(data).__name__}")
+        return data
 
     def validate_batch(
         self,

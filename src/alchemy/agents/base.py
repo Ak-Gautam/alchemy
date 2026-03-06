@@ -7,6 +7,7 @@ import logging
 from typing import Any
 
 from alchemy.models.base import GenerationConfig, GenerationResult, Message, ModelProvider
+from alchemy.utils.json_parsing import build_json_repair_message
 
 logger = logging.getLogger(__name__)
 
@@ -70,10 +71,7 @@ class BaseAgent(abc.ABC):
                 messages.append(
                     Message(
                         role="user",
-                        content=(
-                            f"Your previous response could not be parsed: {e}. "
-                            "Please try again with valid JSON output only."
-                        ),
+                        content=build_json_repair_message(e),
                     )
                 )
 
