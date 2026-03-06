@@ -16,6 +16,7 @@ from alchemy.config.settings import PipelineConfig
 from alchemy.models.base import GenerationConfig, ModelProvider
 from alchemy.models.registry import create_provider
 from alchemy.outputs.base import OutputAdapter
+from alchemy.outputs.hf_postprocess import convert_jsonl_to_hf_dataset
 from alchemy.quality.dedupe import dedupe_exact_rows
 from alchemy.schemas.dynamic import validate_sample_structure
 
@@ -254,7 +255,18 @@ class PipelineEngine:
             accepted_samples=ctx.validated_samples,
             rejected_samples=ctx.rejected_samples,
             metrics=ctx.metrics,
+            plan=ctx.plan.model_dump() if ctx.plan is not None else None,
+            resolved_config=self.config.model_dump(),
         )
+        if self.config.postprocess_hf_from_jsonl:
+            hf_path = self.config.postprocess_hf_output_path
+            if not hf_path:
+                hf_path = f"{artifact_paths['artifacts_dir']}/hf_dataset"
+            artifact_paths["hf_dataset_path"] = convert_jsonl_to_hf_dataset(
+                artifact_paths["accepted_jsonl"],
+                hf_path,
+            )
+            console.print(f"  Saved HF postprocess dataset to: {artifact_paths['hf_dataset_path']}")
         console.print(f"  Saved run artifacts to: {artifact_paths['artifacts_dir']}")
         return artifact_paths
 

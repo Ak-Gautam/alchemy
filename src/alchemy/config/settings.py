@@ -54,6 +54,8 @@ class PipelineConfig(BaseModel):
     num_samples: int = 100
     batch_size: int = 10
     min_quality_score: float = 0.7
+    postprocess_hf_from_jsonl: bool = False
+    postprocess_hf_output_path: str | None = None
 
 
 class GlobalConfig(BaseModel):

@@ -25,6 +25,8 @@ def test_pipeline_config_defaults():
     assert config.num_samples == 100
     assert config.planner_model.provider_type == "mlx"
     assert config.planner_model.generation.temperature == 0.7
+    assert config.postprocess_hf_from_jsonl is False
+    assert config.postprocess_hf_output_path is None
 
 
 def test_global_config_defaults():
