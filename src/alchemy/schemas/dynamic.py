@@ -65,11 +65,13 @@ def validate_sample_structure(
         if isinstance(value, (int, float)):
             if "min_value" in constraints and value < constraints["min_value"]:
                 issues.append(
-                    f"Field {field_def.name}: value {value} below minimum {constraints['min_value']}"
+                    f"Field {field_def.name}: value {value} below minimum "
+                    f"{constraints['min_value']}"
                 )
             if "max_value" in constraints and value > constraints["max_value"]:
                 issues.append(
-                    f"Field {field_def.name}: value {value} above maximum {constraints['max_value']}"
+                    f"Field {field_def.name}: value {value} above maximum "
+                    f"{constraints['max_value']}"
                 )
 
     # Check for unexpected extra fields
