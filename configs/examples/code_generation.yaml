@@ -1,0 +1,21 @@
+# Example: Code generation dataset
+# Uses API models for planning and validation, local for bulk generation
+# TODO update to latest Unsloth qwen 3.5 and GPT-5.4 models
+
+planner_model:
+  provider_type: openai
+  model_id: gpt-4o
+
+generator_model:
+  provider_type: mlx
+  model_id: mlx-community/Qwen2.5-Coder-7B-Instruct-4bit
+
+validator_model:
+  provider_type: openai
+  model_id: gpt-4o-mini
+
+output_format: code
+output_path: ./output/code_gen
+num_samples: 200
+batch_size: 5
+min_quality_score: 0.8

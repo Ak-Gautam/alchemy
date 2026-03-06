@@ -1,0 +1,21 @@
+# Example: Instruction tuning dataset
+# All local models for cost-free generation
+# TODO update to latest Unsloth qwen 3.5 and GPT-5.4 models
+
+planner_model:
+  provider_type: mlx
+  model_id: mlx-community/Qwen2.5-14B-Instruct-4bit
+
+generator_model:
+  provider_type: mlx
+  model_id: mlx-community/Qwen2.5-7B-Instruct-4bit
+
+validator_model:
+  provider_type: mlx
+  model_id: mlx-community/Qwen2.5-14B-Instruct-4bit
+
+output_format: huggingface
+output_path: ./output/instruction_tuning
+num_samples: 1000
+batch_size: 10
+min_quality_score: 0.7
