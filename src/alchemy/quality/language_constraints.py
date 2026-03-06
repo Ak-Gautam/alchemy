@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-
 _LANGUAGE_MARKERS: dict[str, tuple[str, ...]] = {
     "python": ("def ", "import ", "class ", "lambda ", "if __name__"),
     "rust": ("fn ", "let ", "impl ", "use ", "::"),

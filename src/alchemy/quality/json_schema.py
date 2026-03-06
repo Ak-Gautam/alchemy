@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-
 _TYPE_NAME_MAP: dict[str, tuple[type, ...]] = {
     "string": (str,),
     "integer": (int,),

@@ -4,22 +4,26 @@ from __future__ import annotations
 
 import json
 
-from alchemy.pipeline.plan import GenerationPlan
+from alchemy.pipeline.plans import PlanType, plan_quality_rubric, plan_row_schema
 
 
-def build_validator_system_prompt(plan: GenerationPlan) -> str:
+def build_validator_system_prompt(plan: PlanType) -> str:
     quality_str = ""
-    if plan.quality_criteria:
+    quality_rubric = plan_quality_rubric(plan)
+    if quality_rubric:
         quality_str = f"""
 
 Quality criteria to check:
-{chr(10).join(f'- {c}' for c in plan.quality_criteria)}"""
+{chr(10).join(f'- {c}' for c in quality_rubric)}"""
 
     return f"""\
 You are a strict dataset quality validator. You must evaluate synthetic data samples \
 against the following schema and criteria.
 
-{plan.schema_summary()}{quality_str}
+{plan.schema_summary()}
+
+JSON Schema for each row:
+{json.dumps(plan_row_schema(plan), indent=2)}{quality_str}
 
 For each sample, evaluate:
 1. Schema compliance: all required fields present with correct types

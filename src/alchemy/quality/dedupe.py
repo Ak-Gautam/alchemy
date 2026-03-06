@@ -6,7 +6,9 @@ import json
 from typing import Any
 
 
-def dedupe_exact_rows(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+def dedupe_exact_rows(
+    rows: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Deduplicate rows by canonical JSON representation.
 
     Returns `(unique_rows, duplicate_rows)` preserving the first occurrence order.
