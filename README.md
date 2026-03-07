@@ -45,7 +45,7 @@ Example server launch:
 
 ```bash
 llama-server \
-  --model /Users/gautam/model_storage/Qwen3.5-9B-UD-Q4_K_XL.gguf \
+  --model "$HOME/model_storage/Qwen3.5-9B-UD-Q4_K_XL.gguf" \
   --host 127.0.0.1 \
   --port 8091 \
   --ctx-size 8192 \
